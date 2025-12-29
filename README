@@ -1,0 +1,69 @@
+HeadMouse Pro 🖱️👀
+
+Um controlador de mouse "hands-free" de alta precisão que utiliza Visão Computacional (MediaPipe) para rastrear movimentos da cabeça e expressões faciais. Desenvolvido para acessibilidade, produtividade ou apenas para se sentir em um filme de ficção científica.
+
+✨ Funcionalidades
+
+Rastreamento de Cabeça: O cursor segue o movimento do seu nariz com suavização dinâmica (rápido quando você precisa, preciso quando você para).
+
+Cliques Oculares: Pisque (segure levemente) para clicar.
+
+- 👁️ Olho Esquerdo: Clique Esquerdo
+
+- 👁️ Olho Direito: Clique Direito
+
+Rolagem Facial (Scroll):
+
+- 😮 Boca Aberta: Rola para BAIXO.
+
+- 😗 Biquinho: Rola para CIMA.
+
+Modo Pausa: Desative o controle temporariamente para relaxar.
+
+🚀 Como Rodar
+
+1. Instalar Dependências
+
+Certifique-se de ter o Python instalado. Copie e cole o comando abaixo no seu terminal para instalar as bibliotecas necessárias:
+
+pip install opencv-python mediapipe pyautogui numpy
+
+
+2. Executar o Projeto
+
+No terminal, navegue até a pasta onde salvou o arquivo e execute:
+
+python rastreador.py
+
+
+🎮 Guia de Uso
+
+A Calibração: Ao iniciar, você verá uma janela com a sua webcam e um retângulo ciano no centro.
+
+Mova o Mouse: Mantenha seu rosto dentro do quadro. Mova o nariz para as bordas do retângulo ciano para alcançar as bordas da tela.
+
+Clicar: Feche um olho e segure por 0.3 segundos. Você verá uma barra de progresso no topo da tela. Quando ela encher, o clique acontece.
+
+- Rolagem (Scroll):
+
+Abra a boca para descer a página.
+
+Faça um "biquinho" (junte os lábios) para subir a página.
+
+Observe os indicadores numéricos (V: e H:) na parte inferior para entender o que a câmera está detectando.
+
+- Pausar: Pressione a tecla P no teclado para congelar o mouse se precisar olhar para o lado ou conversar.
+
+- Sair: Pressione ESC na janela da câmera para fechar o programa.
+
+⚙️ Ajustes Finos (Configuração)
+
+Abra o arquivo head_mouse_pro.py em um editor de texto. No início do arquivo, você encontrará a classe Config onde pode personalizar tudo:
+
+- SENSITIVITY: Aumente para mover menos a cabeça. Diminua para mais precisão.
+
+- SCROLL_SPEED: Aumente para rolar a página mais rápido.
+
+MOUTH_OPEN_THRESHOLD e MOUTH_PUCKER_THRESHOLD: Ajuste esses valores se o scroll estiver muito sensível ou difícil de ativar (use os números de debug na tela como guia).
+
+Projeto desenvolvido com Python e MediaPipe.
