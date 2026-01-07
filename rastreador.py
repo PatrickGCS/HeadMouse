@@ -1,38 +1,170 @@
-import cv2
-import mediapipe as mp
-import pyautogui
-import numpy as np
+import sys
+import os
+import subprocess 
+import webbrowser
 import time
 import math
+import traceback
+import ctypes # Adicionado para suporte a multi-monitor
+
+# --- FUNÇÃO DE AUTO-REPARO ---
+def repair_environment():
+    print("\n⚠️ INICIANDO PROTOCOLO DE AUTO-REPARO ⚠️")
+    print("O script detectou que sua instalação do MediaPipe está corrompida.")
+    print("Vamos limpar tudo e reinstalar as versões corretas automaticamente.\n")
+    
+    confirm = input("Digite 'S' para confirmar e iniciar o reparo (ou qualquer outra tecla para sair): ")
+    if confirm.upper() != 'S':
+        print("Reparo cancelado. Saindo...")
+        sys.exit(1)
+
+    print("\n[1/3] Desinstalando versões conflitantes...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "mediapipe", "protobuf"])
+    except subprocess.CalledProcessError:
+        print("Aviso: Falha parcial na desinstalação. Tentando continuar...")
+    
+    print("\n[2/3] Instalando versões estáveis (MediaPipe 0.10.9 + Protobuf 3.20.3)...")
+    try:
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", 
+            "--user", "--upgrade", "--force-reinstall",
+            "mediapipe==0.10.9", "protobuf==3.20.3"
+        ])
+    except subprocess.CalledProcessError as e:
+        print(f"\n❌ ERRO FATAL NO PIP: {e}")
+        print("Tente rodar o terminal como Administrador ou use o comando manualmente:")
+        print("pip install mediapipe==0.10.9 protobuf==3.20.3 --user")
+        sys.exit(1)
+    
+    print("\n[3/3] Verificando instalação...")
+    try:
+        import mediapipe
+        print("✅ Instalação concluída!")
+        print("\n========================================================")
+        print("REPARO FINALIZADO. POR FAVOR, RODE ESTE SCRIPT NOVAMENTE.")
+        print("========================================================\n")
+    except ImportError:
+        print("❌ O reparo falhou. Tente instalar o Visual C++ Redistributable manualmente.")
+    
+    input("Pressione ENTER para fechar...")
+    sys.exit(0)
+
+# --- DEBUG DE IMPORTAÇÃO (Diagnóstico Real) ---
+print("--- Iniciando Diagnóstico de Importação ---")
+mp_face_mesh = None
+mp_drawing = None
+mp_drawing_styles = None
+mp = None
+
+try:
+    import mediapipe as mp
+    print(f"MediaPipe base importado: {mp.__file__}")
+except ImportError as e:
+    print(f"ERRO FATAL: Não foi possível importar 'mediapipe'. Causa: {e}")
+    repair_environment() 
+
+errors = []
+
+try:
+    if hasattr(mp, 'solutions'):
+        mp_face_mesh = mp.solutions.face_mesh
+        mp_drawing = mp.solutions.drawing_utils
+        mp_drawing_styles = mp.solutions.drawing_styles
+        print("SUCESSO: mp.solutions carregado via atributo padrão.")
+    else:
+        errors.append("mp.solutions não existe no objeto mediapipe.")
+except Exception as e:
+    errors.append(f"Erro ao acessar mp.solutions: {e}")
+
+if mp_face_mesh is None:
+    try:
+        from mediapipe.solutions import face_mesh
+        from mediapipe.solutions import drawing_utils
+        from mediapipe.solutions import drawing_styles
+        
+        mp_face_mesh = face_mesh
+        mp_drawing = drawing_utils
+        mp_drawing_styles = drawing_styles
+        print("SUCESSO: Carregado via 'from mediapipe.solutions import ...'")
+    except Exception as e:
+        errors.append(f"Erro na importação direta (Tentativa 2): {e}")
+
+if mp_face_mesh is None:
+    try:
+        import mediapipe.python.solutions.face_mesh as mp_face_mesh
+        import mediapipe.python.solutions.drawing_utils as mp_drawing
+        import mediapipe.python.solutions.drawing_styles as mp_drawing_styles
+        print("SUCESSO: Carregado via caminho legado (mediapipe.python.solutions).")
+    except Exception as e:
+        errors.append(f"Erro no caminho legado (Tentativa 3): {e}")
+
+if mp_face_mesh is None:
+    print("\n================================================================")
+    print("❌ FALHA TOTAL DE CARREGAMENTO ❌")
+    print("DETALHES DOS ERROS:")
+    for i, err in enumerate(errors):
+        print(f"  [{i+1}] {err}")
+    print("================================================================\n")
+    repair_environment()
+
+if not hasattr(mp, 'solutions') or mp.solutions is None:
+    class Solutions: pass
+    mp.solutions = Solutions()
+    mp.solutions.face_mesh = mp_face_mesh
+    mp.solutions.drawing_utils = mp_drawing
+    mp.solutions.drawing_styles = mp_drawing_styles
+
+print("--- Importação Concluída com Sucesso ---\n")
+
+print("Carregando bibliotecas de visão e automação...")
+try:
+    import cv2
+    import pyautogui
+    import numpy as np
+except ImportError as e:
+    print(f"\nERRO: Falta uma biblioteca essencial ({e}).")
+    print("Rode: pip install opencv-python pyautogui numpy")
+    sys.exit(1)
+
+# ---------------------------------------
 
 # --- CONFIGURAÇÕES GLOBAIS ---
 class Config:
-    # Tela
-    SCREEN_W, SCREEN_H = pyautogui.size()
+    # --- SUPORTE MULTI-MONITOR ---
+    try:
+        # Usa a API do Windows para pegar o tamanho total da "Virtual Screen" (todos monitores)
+        user32 = ctypes.windll.user32
+        # SM_XVIRTUALSCREEN=76, SM_YVIRTUALSCREEN=77, SM_CXVIRTUALSCREEN=78, SM_CYVIRTUALSCREEN=79
+        SCREEN_X = user32.GetSystemMetrics(76) # Posição X inicial (pode ser negativa)
+        SCREEN_Y = user32.GetSystemMetrics(77) # Posição Y inicial
+        SCREEN_W = user32.GetSystemMetrics(78) # Largura total combinada
+        SCREEN_H = user32.GetSystemMetrics(79) # Altura total combinada
+        print(f"Multi-Monitor Detectado: Origem({SCREEN_X},{SCREEN_Y}) Tamanho({SCREEN_W}x{SCREEN_H})")
+    except Exception as e:
+        # Fallback para monitor único se der erro
+        print(f"Aviso: Detecção multi-monitor falhou ({e}). Usando padrão.")
+        SCREEN_X, SCREEN_Y = 0, 0
+        SCREEN_W, SCREEN_H = pyautogui.size()
     
     # Movimento e Rastreamento
-    SENSITIVITY = 1.6        # Sensibilidade (Maior = Menos movimento de cabeça necessário)
+    SENSITIVITY = 1.6        
     
-    # SUAVIZAÇÃO DINÂMICA (Ajuste Fino)
-    # Se mover devagar -> Usa MIN (Alta precisão/Lento)
-    # Se mover rápido -> Usa MAX (Alta resposta/Rápido)
-    MIN_SMOOTHING = 0.04     # Muito suave (para clicar em botões pequenos)
-    MAX_SMOOTHING = 0.5      # Rápido (para atravessar a tela)
-    SMOOTHING_THRESHOLD = 80 # Distância em pixels para ativar a velocidade máxima
+    # SUAVIZAÇÃO DINÂMICA
+    MIN_SMOOTHING = 0.04     
+    MAX_SMOOTHING = 0.5      
+    SMOOTHING_THRESHOLD = 80 
     
-    DEAD_ZONE = 0.002        # Zona morta para ignorar micro-tremores (respiração)
-    
+    DEAD_ZONE = 0.008        
+
     # Clique (Piscada)
-    BLINK_RATIO_THRESHOLD = 0.022 
-    LONG_BLINK_DURATION = 0.30     # Aumentei levemente para evitar falsos positivos com a nova suavização
+    BLINK_RATIO_THRESHOLD = 0.013 
+    LONG_BLINK_DURATION = 0.40     
 
     # Rolagem (Scroll)
     SCROLL_SPEED = 25             
     
-    # SCROLL DOWN: Boca Aberta (Vertical)
     MOUTH_OPEN_THRESHOLD = 0.35    
-    
-    # SCROLL UP: Biquinho (Horizontal)
     MOUTH_PUCKER_THRESHOLD = 0.30   
     
     # Cores (BGR)
@@ -43,35 +175,46 @@ class Config:
 
 class HeadMouseController:
     def __init__(self):
-        # Inicializa MediaPipe com configurações otimizadas
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=True,
-            min_detection_confidence=0.8, # Aumentei confiança para evitar perda de tracking
+            min_detection_confidence=0.8,
             min_tracking_confidence=0.8
         )
-        self.cam = cv2.VideoCapture(0)
         
-        # Variáveis de Estado
+        print("Inicializando câmera (tentando DirectShow)...")
+        self.cam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        
+        if not self.cam.isOpened():
+            print("DirectShow falhou. Tentando backend padrão...")
+            self.cam = cv2.VideoCapture(0)
+            
+        if not self.cam.isOpened():
+            print("\n========================================================")
+            print("❌ ERRO CRÍTICO: Não foi possível acessar a webcam.")
+            print("========================================================")
+            print("Possíveis causas:")
+            print("1. Outro programa está usando a câmera (Teams, Zoom, Discord, Navegador).")
+            print("2. Permissão de câmera negada nas Configurações de Privacidade do Windows.")
+            print("3. O índice da câmera está errado (tente mudar VideoCapture(0) para 1).")
+            print("========================================================")
+            sys.exit(1)
+        
         self.prev_x, self.prev_y = 0, 0 
         self.curr_x, self.curr_y = 0, 0 
         
-        # Temporizadores de Clique
         self.left_blink_start = None
         self.right_blink_start = None
         self.left_clicked = False
         self.right_clicked = False
         
-        # Estado do Sistema
         self.paused = False
 
-        # Configurações do PyAutoGUI
         pyautogui.PAUSE = 0
         pyautogui.FAILSAFE = False
 
     def get_landmarks(self, frame):
-        """Processa o frame e retorna os landmarks."""
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.face_mesh.process(rgb_frame)
         if results.multi_face_landmarks:
@@ -79,7 +222,6 @@ class HeadMouseController:
         return None
 
     def calculate_blink_ratio(self, landmarks, top_idx, bottom_idx, face_height):
-        """Calcula a abertura do olho relativa ao tamanho do rosto."""
         top = landmarks[top_idx]
         bottom = landmarks[bottom_idx]
         eye_openness = abs(top.y - bottom.y)
@@ -87,15 +229,10 @@ class HeadMouseController:
         return ratio
 
     def calculate_mouth_open_ratio(self, landmarks, face_height):
-        """Calcula abertura VERTICAL da boca (para Scroll Down)."""
-        # 13: Lábio superior, 14: Lábio inferior
         mouth_openness = abs(landmarks[13].y - landmarks[14].y)
         return mouth_openness / face_height
 
     def calculate_mouth_width_ratio(self, landmarks):
-        """Calcula abertura HORIZONTAL da boca (para Scroll Up/Biquinho)."""
-        # 61: Canto esquerdo, 291: Canto direito
-        # 454: Extrema direita rosto, 234: Extrema esquerda rosto
         mouth_width = math.hypot(landmarks[61].x - landmarks[291].x, landmarks[61].y - landmarks[291].y)
         face_width = math.hypot(landmarks[454].x - landmarks[234].x, landmarks[454].y - landmarks[234].y)
         
@@ -103,28 +240,23 @@ class HeadMouseController:
         return mouth_width / face_width
 
     def process_scroll(self, landmarks, face_height, frame):
-        """Gerencia rolagem baseada em Boca Aberta (Descer) e Biquinho (Subir)."""
         if self.paused: return
 
-        # Métricas
         mouth_vertical = self.calculate_mouth_open_ratio(landmarks, face_height)
         mouth_horizontal = self.calculate_mouth_width_ratio(landmarks)
         
         h, w, _ = frame.shape
         center_x = int(w / 2)
 
-        # Debug Visual Discreto
         cv2.putText(frame, f"V:{mouth_vertical:.2f} H:{mouth_horizontal:.2f}", 
                    (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
 
-        # Scroll Down (Boca Aberta)
         if mouth_vertical > (Config.MOUTH_OPEN_THRESHOLD * 0.2): 
             pyautogui.scroll(-Config.SCROLL_SPEED)
             cv2.putText(frame, "SCROLL DOWN", (center_x - 80, h - 100), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, Config.COLOR_SCROLL, 2)
             cv2.circle(frame, (int(landmarks[14].x * w), int(landmarks[14].y * h)), 5, Config.COLOR_SCROLL, -1)
 
-        # Scroll Up (Biquinho)
         elif mouth_horizontal < Config.MOUTH_PUCKER_THRESHOLD:
             pyautogui.scroll(Config.SCROLL_SPEED)
             cv2.putText(frame, "SCROLL UP", (center_x - 60, 100), 
@@ -132,15 +264,12 @@ class HeadMouseController:
             cv2.circle(frame, (int(landmarks[13].x * w), int(landmarks[13].y * h)), 5, Config.COLOR_SCROLL, -1)
 
     def process_clicks(self, landmarks, face_height, frame):
-        """Gerencia lógica de cliques com timer e feedback visual."""
-        
         left_ratio = self.calculate_blink_ratio(landmarks, 159, 145, face_height)
         right_ratio = self.calculate_blink_ratio(landmarks, 386, 374, face_height)
         
         current_time = time.time()
         h, w, _ = frame.shape
 
-        # --- Olho Esquerdo ---
         if left_ratio < Config.BLINK_RATIO_THRESHOLD:
             if self.left_blink_start is None:
                 self.left_blink_start = current_time
@@ -148,7 +277,6 @@ class HeadMouseController:
             elapsed = current_time - self.left_blink_start
             progress = min(elapsed / Config.LONG_BLINK_DURATION, 1.0)
             
-            # Barra de Progresso
             cv2.rectangle(frame, (50, 50), (50 + int(100 * progress), 65), (0, 255, 0), -1)
             cv2.rectangle(frame, (50, 50), (150, 65), (255, 255, 255), 1)
             
@@ -161,7 +289,6 @@ class HeadMouseController:
             self.left_blink_start = None
             self.left_clicked = False
 
-        # --- Olho Direito ---
         if right_ratio < Config.BLINK_RATIO_THRESHOLD:
             if self.right_blink_start is None:
                 self.right_blink_start = current_time
@@ -183,44 +310,35 @@ class HeadMouseController:
             self.right_clicked = False
 
     def move_mouse(self, landmarks, frame):
-        """Calcula posição e move o mouse com suavização dinâmica."""
         if self.paused: return
 
         frame_h, frame_w, _ = frame.shape
         nose = landmarks[4] 
         
-        # 1. Definir Active Zone
         offset = 0.25 / Config.SENSITIVITY
         min_x, max_x = 0.5 - offset, 0.5 + offset
         min_y, max_y = 0.5 - offset, 0.5 + offset
         
-        # HUD: Caixa de Controle
         cv2.rectangle(frame, 
                       (int(min_x * frame_w), int(min_y * frame_h)), 
                       (int(max_x * frame_w), int(max_y * frame_h)), 
                       Config.COLOR_BOX, 1)
         
-        # 2. Mapeamento Linear
-        target_x = np.interp(nose.x, (min_x, max_x), (0, Config.SCREEN_W))
-        target_y = np.interp(nose.y, (min_y, max_y), (0, Config.SCREEN_H))
+        # --- ATUALIZAÇÃO PARA MULTI-MONITOR ---
+        # Mapeia a posição do nariz para o espaço TOTAL (todas as telas combinadas)
+        # O intervalo de saída agora é [SCREEN_X, SCREEN_X + SCREEN_W] em vez de [0, SCREEN_W]
+        target_x = np.interp(nose.x, (min_x, max_x), (Config.SCREEN_X, Config.SCREEN_X + Config.SCREEN_W))
+        target_y = np.interp(nose.y, (min_y, max_y), (Config.SCREEN_Y, Config.SCREEN_Y + Config.SCREEN_H))
         
-        # 3. Dead Zone
         dist_move = math.hypot(target_x - self.prev_x, target_y - self.prev_y)
         if dist_move < (Config.SCREEN_W * Config.DEAD_ZONE):
             target_x = self.prev_x
             target_y = self.prev_y
             
-        # 4. Suavização Dinâmica (A GRANDE MELHORIA)
-        # Calcula a velocidade do movimento (distância desde o último frame)
-        # Se moveu muito (rápido) -> Usa MAX_SMOOTHING (ex: 0.5) para resposta rápida
-        # Se moveu pouco (lento)  -> Usa MIN_SMOOTHING (ex: 0.04) para precisão
-        
-        # Interpolação do fator de suavização baseada na velocidade
         smoothing_factor = np.interp(dist_move, 
                                      [0, Config.SMOOTHING_THRESHOLD], 
                                      [Config.MIN_SMOOTHING, Config.MAX_SMOOTHING])
         
-        # Aplica a suavização variável
         self.curr_x = (target_x * smoothing_factor) + (self.prev_x * (1 - smoothing_factor))
         self.curr_y = (target_y * smoothing_factor) + (self.prev_y * (1 - smoothing_factor))
         
@@ -241,7 +359,6 @@ class HeadMouseController:
             landmarks = self.get_landmarks(frame)
             
             if landmarks:
-                # Altura do rosto para normalizar cálculos
                 face_height = abs(landmarks[152].y - landmarks[10].y)
                 
                 self.process_clicks(landmarks, face_height, frame)
